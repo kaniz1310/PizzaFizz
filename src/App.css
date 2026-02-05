@@ -11,3 +11,259 @@ body {
 h1 {
   color: #ff4d4d;
 }
+
+
+/* NAVBAR FRAME */
+.modern-nav {
+  background: white;
+  padding: 8px 0;
+}
+
+/* CENTER + LIMIT WIDTH */
+.nav-inner {
+  max-width: 1500px;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* LOGO BIG BUT NOT TALL */
+.logo-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transform: scale(1.25);
+  transform-origin: left center;
+}
+
+.logo-emoji {
+  font-size: 30px;
+}
+
+.logo-text {
+  font-weight: 700;
+  font-size: 18px;
+}
+
+/* RIGHT SIDE */
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+/* SEARCH */
+.search-box {
+  position: relative;
+}
+
+.search-box input {
+  width: 200px;
+  padding: 6px 30px 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #ddd;
+}
+
+.search-box i {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  color: #eeb25d;
+}
+
+/* SEARCH DROPDOWN */
+.search-dropdown {
+  position: absolute;
+  width: 100%;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  margin-top: 4px;
+  z-index: 1000;
+}
+
+.search-dropdown button {
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.search-dropdown button:hover {
+  background: #f5f5f5;
+}
+
+.no-result {
+  padding: 8px;
+  color: gray;
+}
+
+/* ICON BUTTON */
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid #ddd;
+  background: white;
+  position: relative;
+}
+
+.icon-btn.dark {
+  background: #c92929;
+  color: white;
+  border: none;
+}
+
+/* BADGE */
+.icon-btn .badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: red;
+  color: white;
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 999px;
+}
+
+/* AUTH BUTTONS */
+.login-btn {
+  border: 1px solid #222;
+  background: white;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+.register-btn {
+  background: #ffc107;
+  border: none;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ===== LOGO ===== */
+
+.logo-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transform: scale(1.25);
+}
+
+.logo-icon {
+  font-size: 24px;
+  filter: drop-shadow(0 2px 3px rgba(255, 120, 0, .35));
+}
+
+.logo-text {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  background: linear-gradient(45deg, #ff6a00, #ffb347);
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* ===== ICON BUTTONS ===== */
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #f3f3f3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: .25s;
+  position: relative;
+}
+
+.icon-btn i {
+  font-size: 16px;
+}
+
+.icon-btn.fancy:hover {
+  background: #ffb347;
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 6px 14px rgba(255, 150, 0, .35);
+}
+
+.icon-btn.dark {
+  background: #222;
+  color: white;
+}
+
+.icon-btn.dark:hover {
+  background: #000;
+}
+
+/* ===== BADGE ===== */
+
+.icon-btn .badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  font-size: 10px;
+  background: red;
+  border-radius: 999px;
+  padding: 3px 5px;
+}
+
+/* ===== GLASS LOGIN BUTTON ===== */
+
+.btn-glass {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  background: rgba(255, 255, 255, .6);
+  backdrop-filter: blur(8px);
+  font-size: 14px;
+  transition: .25s;
+}
+
+.btn-glass:hover {
+  background: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .1);
+}
+
+/* ===== PRIMARY GLOW BUTTON ===== */
+
+.btn-primary-glow {
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: none;
+  font-weight: 600;
+  font-size: 14px;
+  background: linear-gradient(45deg, #ff7a18, #ffb347);
+  color: white;
+  transition: .25s;
+}
+
+.btn-primary-glow:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 140, 0, .4);
+}
+
+/* ===== SEARCH INPUT STYLE ===== */
+
+.search-box input {
+  border: none;
+  background: #f3f3f3;
+  padding: 6px 30px 6px 12px;
+  border-radius: 999px;
+  transition: .25s;
+}
+
+.search-box input:focus {
+  background: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+}
