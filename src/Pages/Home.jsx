@@ -8,15 +8,17 @@ import { useNavigate } from "react-router-dom";
 import { Link } from "react-router-dom";
 import Menu from "./Menu";
 
+
 function Home() {
 
+
     const navigate = useNavigate();
+
     return (
         <div className="container text-center my-5">
 
-            {/* Banner / Carousel */}
-            <div
-                id="pizzaBanner"
+
+            <div id="pizzaBanner"
                 className="carousel slide mb-5"
                 data-bs-ride="carousel"
             >
@@ -49,7 +51,9 @@ function Home() {
           0%,100% { transform: translateY(0); }
           50%      { transform: translateY(-20px); }
         }
-      `}</style>
+      `}
+
+                            </style>
                         </div>
                     </div>
 
@@ -122,13 +126,17 @@ function Home() {
 
             {/* Menu Button */}
             <div className="mt-5">
-                <button className="btn btn-lg btn-outline-dark">
+                <button
+                    className="btn btn-lg btn-outline-dark"
+                    onClick={() => navigate("/menu")}
+                >
                     View Full Menu
                 </button>
             </div>
 
         </div>
     );
+
 }
 
 export default Home;

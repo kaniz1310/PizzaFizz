@@ -1,11 +1,15 @@
 // src/components/Navbar.jsx
+// Shows different links based on role:
+// Customer → My Orders
+// Rider    → My Deliveries
+// Owner    → Dashboard
+
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../Context/CartContext";
 
 export default function Navbar() {
     const { cartCount } = useCart();
     const navigate = useNavigate();
-
     const user = JSON.parse(localStorage.getItem("user") || "null");
 
     function handleLogout() {
@@ -14,55 +18,80 @@ export default function Navbar() {
         navigate("/login");
     }
 
+    // Role-specific colors
+    const roleColor = {
+        customer: "#e63329",
+        rider: "#3b82f6",
+        owner: "#7c2d12",
+        admin: "#7c2d12",
+    };
+    const headerBg = user ? (roleColor[user.role] || "#e63329") : "#e63329";
+
     return (
-        <header style={styles.header}>
+        <header style={{ ...styles.header, background: headerBg }}>
+
             {/* Logo */}
             <div onClick={() => navigate("/")} style={styles.logo}>
                 Pizza<span style={{ color: "#fbbf24" }}>Fizz</span> 🍕
-            </div>
-
-            {/* Right side */}
-            <div style={styles.right}>
+                {/* Role tag */}
                 {user && (
-                    <span style={styles.greeting}>
-                        Hi, {user.name?.split(" ")[0]}!
+                    <span style={styles.roleTag}>
+                        {user.role === "customer" ? "🧑" : user.role === "rider" ? "🛵" : "👨‍🍳"}
                     </span>
                 )}
+            </div>
 
-                {/* Cart — always visible */}
-                <button onClick={() => navigate("/cart")} style={styles.cartBtn}>
-                    🛒 Cart
-                    <span style={styles.badge}>{cartCount}</span>
-                </button>
+            <div style={styles.right}>
 
-                {user ? (
+                {user && (
+                    <span style={styles.greeting}>Hi, {user.name?.split(" ")[0]}!</span>
+                )}
+
+                {/* ── Customer links ── */}
+                {user?.role === "customer" && (
                     <>
-                        {/* Customer links */}
-                        {user.role === "customer" && (
-                            <button
-                                onClick={() => navigate("/my-orders")}
-                                style={styles.outlineBtn}
-                            >
-                                🧾 My Orders
-                            </button>
-                        )}
-
-                        {/* Owner dashboard link */}
-                        {(user.role === "owner" || user.role === "admin") && (
-                            <button
-                                onClick={() => navigate("/admin")}
-                                style={styles.outlineBtn}
-                            >
-                                👨‍🍳 Dashboard
-                            </button>
-                        )}
-
-                        <button onClick={handleLogout} style={styles.outlineBtn}>
-                            Sign Out
+                        <button onClick={() => navigate("/cart")} style={styles.cartBtn}>
+                            🛒 Cart <span style={styles.badge}>{cartCount}</span>
+                        </button>
+                        <button onClick={() => navigate("/my-orders")} style={styles.outlineBtn}>
+                            🧾 My Orders
+                        </button>
+                        <button onClick={() => navigate("/menu")} style={styles.outlineBtn}>
+                            🍕 Menu
                         </button>
                     </>
-                ) : (
+                )}
+
+                {/* ── Rider links ── */}
+                {user?.role === "rider" && (
                     <>
+                        <button onClick={() => navigate("/rider/dashboard")} style={{
+                            ...styles.outlineBtn,
+                            background: "rgba(255,255,255,.15)",
+                        }}>
+                            🛵 Dashboard
+                        </button>
+                        <button onClick={() => navigate("/rider/dashboard")} style={styles.cartBtn}>
+                            📦 My Deliveries
+                        </button>
+                    </>
+                )}
+
+                {/* ── Owner links ── */}
+                {(user?.role === "owner" || user?.role === "admin") && (
+                    <>
+                        <button onClick={() => navigate("/admin")} style={styles.cartBtn}>
+                            👨‍🍳 Dashboard
+                        </button>
+                    </>
+                )}
+
+                {/* ── Not logged in ── */}
+                {!user && (
+                    <>
+                        <button onClick={() => navigate("/cart")} style={styles.cartBtn}>
+                            🛒 Cart <span style={styles.badge}>{cartCount}</span>
+                        </button>
                         <button onClick={() => navigate("/login")} style={styles.outlineBtn}>
                             Sign In
                         </button>
@@ -74,6 +103,13 @@ export default function Navbar() {
                         </button>
                     </>
                 )}
+
+                {/* Sign out (always when logged in) */}
+                {user && (
+                    <button onClick={handleLogout} style={styles.outlineBtn}>
+                        Sign Out
+                    </button>
+                )}
             </div>
         </header>
     );
@@ -81,41 +117,41 @@ export default function Navbar() {
 
 const styles = {
     header: {
-        background: "#e63329",
-        padding: "14px 32px",
+        padding: "14px 24px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        boxShadow: "0 4px 0 #7c2d12",
+        boxShadow: "0 4px 0 rgba(0,0,0,.2)",
         position: "sticky", top: 0, zIndex: 100,
+        transition: "background .3s",
     },
     logo: {
-        fontFamily: "'Boogaloo', cursive",
-        fontSize: "2rem", color: "#fff",
+        fontFamily: "'Boogaloo',cursive",
+        fontSize: "1.8rem", color: "#fff",
         cursor: "pointer", userSelect: "none",
+        display: "flex", alignItems: "center", gap: 8,
     },
-    right: {
-        display: "flex", gap: 8,
-        alignItems: "center", flexWrap: "wrap",
+    roleTag: {
+        background: "rgba(255,255,255,.2)",
+        borderRadius: 50, padding: "2px 10px",
+        fontSize: ".9rem",
     },
-    greeting: {
-        color: "rgba(255,255,255,.85)",
-        fontWeight: 700, fontSize: ".9rem",
-    },
+    right: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
+    greeting: { color: "rgba(255,255,255,.85)", fontWeight: 700, fontSize: ".88rem" },
     cartBtn: {
         background: "#fbbf24", color: "#1c0a00", border: "none",
-        borderRadius: 50, padding: "8px 18px", cursor: "pointer",
-        fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: ".9rem",
-        display: "flex", alignItems: "center", gap: 6,
+        borderRadius: 50, padding: "8px 16px", cursor: "pointer",
+        fontFamily: "Nunito,sans-serif", fontWeight: 800, fontSize: ".88rem",
+        display: "flex", alignItems: "center", gap: 5,
     },
     badge: {
         background: "#1c0a00", color: "#fff", borderRadius: "50%",
-        width: 22, height: 22, display: "flex",
+        width: 20, height: 20, display: "flex",
         alignItems: "center", justifyContent: "center",
-        fontSize: ".72rem", fontWeight: 700,
+        fontSize: ".7rem", fontWeight: 700,
     },
     outlineBtn: {
-        background: "transparent", border: "2px solid #fff",
-        color: "#fff", borderRadius: 50, padding: "8px 16px",
-        cursor: "pointer", fontFamily: "Nunito, sans-serif",
+        background: "transparent", border: "2px solid rgba(255,255,255,.7)",
+        color: "#fff", borderRadius: 50, padding: "7px 14px",
+        cursor: "pointer", fontFamily: "Nunito,sans-serif",
         fontWeight: 700, fontSize: ".85rem",
     },
 };
