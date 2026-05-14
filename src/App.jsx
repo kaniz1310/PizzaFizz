@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { CartProvider } from "./Context/CartContext";
 
 import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 import Home from "./Pages/Home";
 import Login from "./Pages/Login";
 import Register from "./Pages/Register";
@@ -15,6 +16,8 @@ import Menu from "./Pages/Menu";
 import AdminPanel from "./Pages/AdminPanel";
 import Riderdashboard from "./Pages/Riderdashboard";
 import Trackorder from "./Pages/Trackorder";
+
+
 
 // ── Route guard: redirect if not the right role ──────
 function RoleRoute({ role, children }) {
@@ -64,6 +67,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
 
         </Routes>
+        <Footer />
       </CartProvider>
     </BrowserRouter>
   );
