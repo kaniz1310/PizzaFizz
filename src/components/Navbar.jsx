@@ -15,6 +15,7 @@ export default function Navbar() {
     function handleLogout() {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        window.dispatchEvent(new Event("pizzafizz-auth"));
         navigate("/login");
     }
 

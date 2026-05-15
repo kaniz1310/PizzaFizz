@@ -192,26 +192,43 @@ export const trackOrder = (orderId, token) =>
 // ── AI Image ──────────────────────────────────────────
 export const generatePizzaImage = async (pizzaData) => {
     try {
+        const toppings = [
+            ...(pizzaData.toppings || []).map((t) =>
+                typeof t === "string" ? t : t.label
+            ),
+            ...(pizzaData.cheeses || []).map((c) =>
+                typeof c === "string" ? c : `${c.label} cheese`
+            ),
+            ...(pizzaData.addIns || []).map((a) =>
+                typeof a === "string" ? a : a.label
+            ),
+        ].filter(Boolean);
+
         const response = await fetch(`${BASE}/generate`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                crust: pizzaData.crust || "",
-                sauce: pizzaData.sauce || "",
-                toppings: (pizzaData.toppings || []).map((t) =>
-                    typeof t === "string" ? t : t.label
-                ),
+                crust: pizzaData.crust || "classic",
+                sauce: pizzaData.sauce || "tomato",
+                toppings,
             }),
         });
 
-        return await response.json();
+        const data = await response.json();
+        if (!response.ok) {
+            return { error: data.detail || data.message || "Generation failed" };
+        }
+        if (data.image) {
+            return {
+                imageUrl: data.image.startsWith("data:")
+                    ? data.image
+                    : `data:image/jpeg;base64,${data.image}`,
+            };
+        }
+        return { error: "No image returned" };
     } catch (error) {
         console.error("Generate image error:", error);
-        return {
-            error: "Failed to connect",
-        };
+        return { error: "Could not reach the kitchen AI — try again!" };
     }
 };
 

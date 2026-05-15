@@ -38,6 +38,7 @@ export default function Register() {
             const data = await registerUser({ ...form, role });
             localStorage.setItem("token", data.token);
             localStorage.setItem("user", JSON.stringify(data.user));
+            window.dispatchEvent(new Event("pizzafizz-auth"));
             navigate(ROLE_REDIRECT[data.user.role] || "/");
         } catch (err) {
             setError(err.message || "Registration failed");

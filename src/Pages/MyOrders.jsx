@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchOrders } from "../api";
+import { useCart } from "../Context/CartContext";
+import { orderItemToCartItem } from "../utils/cartUtils";
 
 const STATUS_CONFIG = {
     "New": { color: "#b45309", bg: "#fef3c7", icon: "🆕", label: "New", msg: "⏳ Order received! We'll start soon." },
@@ -21,6 +23,7 @@ export default function MyOrders() {
     const [updatedIds, setUpdatedIds] = useState(new Set());
     const navigate = useNavigate();
     const wsRef = useRef(null);
+    const { addManyToCart } = useCart();
 
     const user = JSON.parse(localStorage.getItem("user") || "null");
     const token = localStorage.getItem("token");
@@ -107,6 +110,16 @@ export default function MyOrders() {
                         order={order}
                         isFlashing={updatedIds.has(order.id)}
                         onTrack={() => navigate(`/track/${order.id}`)}
+                        onReorder={() => {
+                            const items = (order.items || []).map(orderItemToCartItem);
+                            if (!items.length) {
+                                showToast("No items to reorder");
+                                return;
+                            }
+                            addManyToCart(items);
+                            showToast(`🛒 ${items.length} item(s) added — same as order #${order.id}!`);
+                            setTimeout(() => navigate("/cart"), 1200);
+                        }}
                     />
                 ))}
             </div>
@@ -127,7 +140,7 @@ export default function MyOrders() {
     );
 }
 
-function OrderCard({ order, isFlashing, onTrack }) {
+function OrderCard({ order, isFlashing, onTrack, onReorder }) {
     const s = STATUS_CONFIG[order.status] || STATUS_CONFIG["New"];
     const currentStep = STEPS.indexOf(order.status);
 
@@ -192,12 +205,34 @@ function OrderCard({ order, isFlashing, onTrack }) {
                     <div style={{ fontSize: ".82rem", opacity: .85 }}>📍 {order.customer_address}</div>
                     <span style={{ fontFamily: "'Boogaloo',cursive", fontSize: "1.4rem" }}>৳{order.total}</span>
                 </div>
-                {/* Track button for active deliveries */}
-                {order.status === "Out for Delivery" && (
-                    <button onClick={onTrack} style={{ marginTop: 10, width: "100%", padding: "10px 0", background: "#fff", color: "#e63329", border: "none", borderRadius: 50, fontFamily: "'Boogaloo',cursive", fontSize: "1.1rem", cursor: "pointer", fontWeight: 700 }}>
-                        📍 Track Live on Map
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    <button
+                        type="button"
+                        onClick={onReorder}
+                        style={{
+                            flex: 1, minWidth: 140, padding: "10px 0",
+                            background: "#fbbf24", color: "#1c0a00", border: "none",
+                            borderRadius: 50, fontFamily: "'Boogaloo',cursive",
+                            fontSize: "1rem", cursor: "pointer", fontWeight: 700,
+                        }}
+                    >
+                        🔁 Reorder
                     </button>
-                )}
+                    {order.status === "Out for Delivery" && (
+                        <button
+                            type="button"
+                            onClick={onTrack}
+                            style={{
+                                flex: 1, minWidth: 140, padding: "10px 0",
+                                background: "#fff", color: "#e63329", border: "none",
+                                borderRadius: 50, fontFamily: "'Boogaloo',cursive",
+                                fontSize: "1rem", cursor: "pointer", fontWeight: 700,
+                            }}
+                        >
+                            📍 Track Live
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Status message */}

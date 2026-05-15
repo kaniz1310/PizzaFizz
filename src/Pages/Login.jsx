@@ -36,6 +36,7 @@ export default function Login() {
             const data = await loginUser({ email, password });
             localStorage.setItem("token", data.token);
             localStorage.setItem("user", JSON.stringify(data.user));
+            window.dispatchEvent(new Event("pizzafizz-auth"));
             const dest = ROLE_REDIRECT[data.user.role] || "/";
             navigate(dest);
         } catch (err) {
