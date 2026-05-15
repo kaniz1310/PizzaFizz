@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../Context/CartContext";
-import { initiatePayment, placeCodOrder } from "../api";
+import { placeOrder, initiatePayment, getMe } from "../api";
 
 export default function Cart() {
     const navigate = useNavigate();
@@ -18,8 +18,7 @@ export default function Cart() {
 
     const { cart, removeFromCart, updateQty, clearCart } = useCart();
 
-    // ── Safe price calculation ─────────────────────────────────
-    // parseFloat guards against undefined/NaN coming from context
+    // Price calculations
     const subtotal = cart.reduce((sum, item) => {
         const price = parseFloat(item.price) || 0;
         const qty = parseInt(item.qty) || 1;
@@ -57,15 +56,11 @@ export default function Cart() {
 
     const canPlaceOrder = Boolean(paymentMethod && hasPaymentDetails() && paymentConfirmed);
 
-    // ── Parse any error into a readable string ─────────────────
+    // Improved error parser
     function parseError(err) {
         if (!err) return "Something went wrong";
         if (typeof err === "string") return err;
-        if (err.message) {
-            // If message is "[object Object]" unwrap it
-            if (err.message === "[object Object]") return "Order failed — check backend is running";
-            return err.message;
-        }
+        if (err.message) return err.message;
         if (err.detail) {
             if (Array.isArray(err.detail)) {
                 return err.detail.map(d => d.msg || JSON.stringify(d)).join(", ");
@@ -76,30 +71,27 @@ export default function Cart() {
     }
 
     async function handlePlaceOrder() {
-        const user = JSON.parse(localStorage.getItem("user") || "null");
         const token = localStorage.getItem("token");
+        const user = JSON.parse(localStorage.getItem("user") || "null");
 
-        if (!user || !token) {
+        if (!token || !user) {
             showToast("⚠️ Please sign in first!");
-            setTimeout(() => navigate("/login"), 1200);
+            setTimeout(() => navigate("/login"), 1500);
             return;
         }
+
         if (!cart.length) return;
-        if (!paymentMethod) {
-            showToast("Please choose a payment method.");
-            return;
-        }
-        if (!hasPaymentDetails()) {
-            showToast("Please complete the payment details.");
-            return;
-        }
-        if (!paymentConfirmed) {
-            showToast("Please confirm the payment step.");
+        if (!paymentMethod || !hasPaymentDetails() || !paymentConfirmed) {
+            showToast("Please complete payment details and confirmation.");
             return;
         }
 
         setLoading(true);
+
         try {
+            // Optional: Verify token is still valid
+            // await getMe(token);
+
             const payload = {
                 items: cart.map(item => ({
                     name: item.name || `${item.size} Pizza`,
@@ -107,45 +99,56 @@ export default function Cart() {
                     crust: item.crust || "Classic",
                     sauce: item.sauce || "Tomato",
                     toppings: (item.toppings || []).map(t =>
-                        typeof t === "string"
-                            ? { label: t, icon: "", price: 0 }
-                            : { label: t.label || "", icon: t.icon || "", price: t.price || 0 }
+                        typeof t === "string" ? { label: t } : t
                     ),
                     price: parseFloat(item.price) || 0,
                     qty: parseInt(item.qty) || 1,
                 })),
                 subtotal,
                 total,
-            };
-
-            const data = paymentMethod === "cod"
-                ? await placeCodOrder({ ...payload, payment_method: "cod" }, token)
-                : await initiatePayment({
-                    ...payload,
-                    payment_method: paymentMethod,
+                payment_method: paymentMethod,
+                ...(paymentMethod === "bkash" && {
                     bkash_number: paymentForm.bkash_number,
                     bkash_otp: paymentForm.bkash_otp,
+                }),
+                ...(paymentMethod === "card" && {
                     card_last4: paymentForm.card_last4,
-                }, token);
+                }),
+            };
 
-            if (data.redirect_url) {
-                window.location.href = data.redirect_url;
-                return;
-            }
+            console.log("📤 Sending order with token:", token.substring(0, 30) + "...");
+
+            const data = paymentMethod === "cod"
+                ? await placeOrder(payload, token)
+                : await initiatePayment(payload, token);
+
             clearCart();
-            showToast(data.message || "Payment confirmed and order placed!");
+            showToast(data.message || "✅ Order placed successfully!");
+
             setTimeout(() => {
-                navigate("/confirm", { state: { order: data.order } });
-            }, 700);
+                navigate("/confirm", { state: { order: data.order || data } });
+            }, 800);
 
         } catch (err) {
-            showToast("❌ " + parseError(err));
+            console.error("❌ Place Order Error:", err);
+            const errorMsg = parseError(err);
+            showToast("❌ " + errorMsg);
+
+            // Auto logout on authentication issues
+            if (errorMsg.includes("401") ||
+                errorMsg.toLowerCase().includes("unauthorized") ||
+                errorMsg.toLowerCase().includes("user not found")) {
+                localStorage.removeItem("token");
+                localStorage.removeItem("user");
+                showToast("Session expired. Please login again.");
+                setTimeout(() => navigate("/login"), 1800);
+            }
         } finally {
             setLoading(false);
         }
     }
 
-    // ── Empty cart ─────────────────────────────────────────────
+    // Empty Cart View
     if (!cart.length) {
         return (
             <div style={styles.emptyWrap}>
@@ -165,7 +168,7 @@ export default function Cart() {
         <div style={styles.wrap}>
             <h2 style={styles.pageTitle}>🛒 Your Cart</h2>
 
-            {/* ── Cart items ── */}
+            {/* Cart Items */}
             {cart.map(item => {
                 const qty = parseInt(item.qty) || 1;
                 const price = parseFloat(item.price) || 0;
@@ -184,7 +187,6 @@ export default function Cart() {
                                     : ""}
                             </p>
 
-                            {/* Qty controls */}
                             <div style={styles.qtyRow}>
                                 <QtyBtn onClick={() => updateQty(item.id, qty - 1)}>−</QtyBtn>
                                 <span style={styles.qtyNum}>{qty}</span>
@@ -200,11 +202,11 @@ export default function Cart() {
                 );
             })}
 
-            {/* ── Order summary ── */}
+            {/* Order Summary */}
             <div style={styles.summaryCard}>
                 <h3 style={styles.summaryTitle}>Order Summary</h3>
 
-                {/* Delivery address */}
+                {/* Delivery Address */}
                 <div style={styles.deliveryBox}>
                     <div style={{ fontWeight: 700, marginBottom: 6, fontSize: ".9rem" }}>
                         📦 Deliver to:
@@ -222,10 +224,12 @@ export default function Cart() {
                     )}
                 </div>
 
+                {/* Payment Section */}
                 <div style={styles.paymentBox}>
                     <div style={{ fontWeight: 800, marginBottom: 10, fontSize: ".92rem" }}>
                         Payment method required
                     </div>
+
                     <div style={styles.paymentOptions}>
                         {[
                             { value: "cod", label: "Cash" },
@@ -246,12 +250,6 @@ export default function Cart() {
                             </button>
                         ))}
                     </div>
-
-                    {!paymentMethod && (
-                        <div style={styles.paymentWarning}>
-                            Choose how you want to pay before placing the order.
-                        </div>
-                    )}
 
                     {paymentMethod === "bkash" && (
                         <div>
@@ -280,7 +278,6 @@ export default function Cart() {
                     )}
 
                     <div style={styles.paymentNote}>
-                        {!paymentMethod && "No payment method selected yet."}
                         {paymentMethod === "cod" && "Cash on delivery: confirm you will pay the rider when the pizza arrives."}
                         {paymentMethod === "bkash" && "bKash sandbox checkout will validate the number and OTP before creating the order."}
                         {paymentMethod === "card" && "Card checkout is initiated before the order is confirmed."}
@@ -289,7 +286,7 @@ export default function Cart() {
                     {paymentMethod && (
                         <label style={{
                             ...styles.paymentConfirm,
-                            opacity: hasPaymentDetails() ? 1 : .55,
+                            opacity: hasPaymentDetails() ? 1 : 0.55,
                         }}>
                             <input
                                 type="checkbox"
@@ -327,12 +324,10 @@ export default function Cart() {
                 </button>
             </div>
 
-            {/* Toast */}
+            {/* Toast Notification */}
             <div style={{
                 ...styles.toast,
-                transform: toast
-                    ? "translateX(-50%) translateY(0)"
-                    : "translateX(-50%) translateY(100px)",
+                transform: toast ? "translateX(-50%) translateY(0)" : "translateX(-50%) translateY(100px)",
             }}>
                 {toast}
             </div>
@@ -340,7 +335,7 @@ export default function Cart() {
     );
 }
 
-// ── Sub-components ─────────────────────────────────────────────
+// Sub Components
 function QtyBtn({ children, onClick }) {
     return (
         <button onClick={onClick} style={styles.qtyBtn}>{children}</button>
@@ -356,141 +351,67 @@ function SRow({ label, value }) {
     );
 }
 
-// ── Styles ─────────────────────────────────────────────────────
+// Styles
 const styles = {
     wrap: { maxWidth: 700, margin: "0 auto", padding: "32px 16px" },
-    pageTitle: {
-        fontFamily: "'Boogaloo', cursive",
-        fontSize: "2.2rem", color: "#e63329", marginBottom: 24,
-    },
+    pageTitle: { fontFamily: "'Boogaloo', cursive", fontSize: "2.2rem", color: "#e63329", marginBottom: 24 },
 
     cartItem: {
         background: "#fff", borderRadius: 20, padding: 20, marginBottom: 16,
-        boxShadow: "0 4px 16px rgba(0,0,0,.06)",
-        display: "flex", gap: 16, alignItems: "center",
+        boxShadow: "0 4px 16px rgba(0,0,0,.06)", display: "flex", gap: 16, alignItems: "center",
     },
     itemName: { fontWeight: 800, fontSize: "1rem" },
     itemSub: { fontSize: ".82rem", color: "#888", marginTop: 2 },
-    itemPrice: {
-        fontFamily: "'Boogaloo', cursive",
-        fontSize: "1.4rem", color: "#e63329",
-    },
-    removeBtn: {
-        background: "none", border: "none",
-        fontSize: "1.3rem", cursor: "pointer", color: "#ccc",
-    },
+    itemPrice: { fontFamily: "'Boogaloo', cursive", fontSize: "1.4rem", color: "#e63329" },
+    removeBtn: { background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", color: "#ccc" },
 
     qtyRow: { display: "flex", alignItems: "center", gap: 8, marginTop: 8 },
     qtyBtn: {
-        width: 30, height: 30, borderRadius: "50%",
-        border: "2px solid #e63329", background: "#fff", color: "#e63329",
-        fontSize: "1.1rem", fontWeight: 900, cursor: "pointer",
-        display: "flex", alignItems: "center", justifyContent: "center",
+        width: 30, height: 30, borderRadius: "50%", border: "2px solid #e63329",
+        background: "#fff", color: "#e63329", fontSize: "1.1rem", fontWeight: 900,
+        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
     },
     qtyNum: { fontWeight: 800, fontSize: "1rem", minWidth: 24, textAlign: "center" },
 
     summaryCard: {
-        background: "linear-gradient(135deg, #e63329, #f97316)",
-        borderRadius: 20, padding: 24, color: "#fff", marginTop: 24,
+        background: "linear-gradient(135deg, #e63329, #f97316)", borderRadius: 20,
+        padding: 24, color: "#fff", marginTop: 24,
     },
-    summaryTitle: {
-        fontFamily: "'Boogaloo', cursive",
-        fontSize: "1.5rem", marginBottom: 16,
-    },
-    deliveryBox: {
-        background: "rgba(0,0,0,.15)",
-        borderRadius: 12, padding: "12px 16px", marginBottom: 16,
-    },
-    paymentBox: {
-        background: "rgba(0,0,0,.15)",
-        borderRadius: 12, padding: "12px 16px", marginBottom: 16,
-    },
-    paymentOptions: {
-        display: "grid",
-        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-        gap: 8,
-        marginBottom: 10,
-    },
+    summaryTitle: { fontFamily: "'Boogaloo', cursive", fontSize: "1.5rem", marginBottom: 16 },
+    deliveryBox: { background: "rgba(0,0,0,.15)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 },
+    paymentBox: { background: "rgba(0,0,0,.15)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 },
+    paymentOptions: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 10 },
     paymentOption: {
-        border: "1px solid rgba(255,255,255,.45)",
-        borderRadius: 10,
-        padding: "8px 6px",
-        cursor: "pointer",
-        fontWeight: 800,
-        fontSize: ".8rem",
+        border: "1px solid rgba(255,255,255,.45)", borderRadius: 10, padding: "8px 6px",
+        cursor: "pointer", fontWeight: 800, fontSize: ".8rem",
     },
     paymentInput: {
-        width: "100%",
-        border: "none",
-        borderRadius: 10,
-        padding: "10px 12px",
-        marginTop: 8,
-        outline: "none",
-        fontFamily: "Nunito,sans-serif",
-        fontSize: ".9rem",
+        width: "100%", border: "none", borderRadius: 10, padding: "10px 12px",
+        marginTop: 8, outline: "none", fontSize: ".9rem",
     },
-    paymentNote: {
-        fontSize: ".75rem",
-        opacity: .9,
-        marginTop: 8,
-        lineHeight: 1.4,
-    },
-    paymentWarning: {
-        background: "rgba(255,255,255,.18)",
-        border: "1px solid rgba(255,255,255,.35)",
-        borderRadius: 10,
-        padding: "9px 12px",
-        fontSize: ".8rem",
-        fontWeight: 800,
-    },
-    paymentConfirm: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        marginTop: 10,
-        fontSize: ".82rem",
-        fontWeight: 800,
-        cursor: "pointer",
-    },
-    summaryRow: {
-        display: "flex", justifyContent: "space-between",
-        marginBottom: 8, fontSize: ".95rem",
-    },
+    paymentNote: { fontSize: ".75rem", opacity: 0.9, marginTop: 8, lineHeight: 1.4 },
+    paymentConfirm: { display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: ".82rem", fontWeight: 800, cursor: "pointer" },
+
+    summaryRow: { display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: ".95rem" },
     totalRow: {
-        display: "flex", justifyContent: "space-between",
-        borderTop: "2px solid rgba(255,255,255,.3)",
-        paddingTop: 10, marginTop: 8,
-        fontFamily: "'Boogaloo', cursive", fontSize: "1.8rem",
+        display: "flex", justifyContent: "space-between", borderTop: "2px solid rgba(255,255,255,.3)",
+        paddingTop: 10, marginTop: 8, fontFamily: "'Boogaloo', cursive", fontSize: "1.8rem",
     },
     orderBtn: {
-        width: "100%", padding: 16,
-        background: "#fff", color: "#e63329", border: "none",
-        borderRadius: 50, fontFamily: "'Boogaloo', cursive",
-        fontSize: "1.4rem", marginTop: 16,
+        width: "100%", padding: 16, background: "#fff", color: "#e63329", border: "none",
+        borderRadius: 50, fontFamily: "'Boogaloo', cursive", fontSize: "1.4rem", marginTop: 16,
     },
 
-    emptyWrap: {
-        textAlign: "center", padding: "80px 20px",
-        minHeight: "calc(100vh - 68px)",
-        display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center",
-    },
-    emptyTitle: {
-        fontFamily: "'Boogaloo', cursive",
-        fontSize: "1.8rem", marginTop: 12, color: "#555",
-    },
+    emptyWrap: { textAlign: "center", padding: "80px 20px", minHeight: "calc(100vh - 68px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" },
+    emptyTitle: { fontFamily: "'Boogaloo', cursive", fontSize: "1.8rem", marginTop: 12, color: "#555" },
     yellowBtn: {
-        background: "#fbbf24", color: "#1c0a00", border: "none",
-        borderRadius: 50, padding: "12px 28px", cursor: "pointer",
-        fontFamily: "'Boogaloo', cursive", fontSize: "1.1rem", marginTop: 16,
+        background: "#fbbf24", color: "#1c0a00", border: "none", borderRadius: 50,
+        padding: "12px 28px", cursor: "pointer", fontFamily: "'Boogaloo', cursive", fontSize: "1.1rem", marginTop: 16,
     },
 
     toast: {
-        position: "fixed", bottom: 24, left: "50%",
-        background: "#1c0a00", color: "#fff",
-        padding: "12px 28px", borderRadius: 50,
-        fontWeight: 700, fontSize: ".95rem",
-        zIndex: 999, transition: "transform .35s ease",
-        pointerEvents: "none", whiteSpace: "nowrap",
+        position: "fixed", bottom: 24, left: "50%", background: "#1c0a00", color: "#fff",
+        padding: "12px 28px", borderRadius: 50, fontWeight: 700, fontSize: ".95rem",
+        zIndex: 999, transition: "transform .35s ease", pointerEvents: "none", whiteSpace: "nowrap",
     },
 };
