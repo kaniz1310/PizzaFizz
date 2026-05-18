@@ -10,9 +10,9 @@
 
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 import sqlite3
 import uuid
@@ -20,10 +20,13 @@ import bcrypt
 import jwt
 import os
 import json
+import io
+import csv
 import base64
 import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from menu_seed_data import MENU_SEED_ITEMS
 
 load_dotenv()
 
@@ -149,10 +152,69 @@ def init_db():
         )""")
 
     c.execute("""
+        CREATE TABLE IF NOT EXISTS rider_withdrawals (
+            id TEXT PRIMARY KEY, rider_id TEXT NOT NULL,
+            amount REAL NOT NULL, method TEXT NOT NULL,
+            detail TEXT, created_at TEXT
+        )""")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS owner_investments (
+            id TEXT PRIMARY KEY, recorded_by TEXT,
+            amount REAL NOT NULL, category TEXT, note TEXT, created_at TEXT
+        )""")
+
+    if "rider_card_balance" not in u_existing:
+        c.execute(
+            "ALTER TABLE users ADD COLUMN rider_card_balance REAL DEFAULT 0")
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS reviews (
             id TEXT PRIMARY KEY, user_id TEXT, user_name TEXT,
             order_id TEXT, rating INTEGER, comment TEXT, created_at TEXT
         )""")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS menu_items (
+            id TEXT PRIMARY KEY,
+            section TEXT NOT NULL,
+            category TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            price REAL NOT NULL,
+            discount_percent REAL DEFAULT 0,
+            badge TEXT,
+            badge_color TEXT,
+            image_url TEXT,
+            size TEXT,
+            crust TEXT,
+            sauce TEXT,
+            toppings TEXT,
+            tags TEXT,
+            is_available INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )""")
+
+    if c.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0] == 0:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for i, row in enumerate(MENU_SEED_ITEMS):
+            c.execute(
+                "INSERT INTO menu_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    row["id"], row["section"], row["category"], row["name"],
+                    row.get("description", ""), row["price"],
+                    row.get("discount_percent", 0),
+                    row.get("badge"), row.get("badge_color"),
+                    row.get("image_url", ""),
+                    row.get("size", ""), row.get("crust", ""),
+                    row.get("sauce", ""),
+                    json.dumps(row.get("toppings") or []),
+                    json.dumps(row.get("tags") or []),
+                    1, i, now, now,
+                ),
+            )
 
     if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         for email, name, pw, role, phone, addr, lat, lng in [
@@ -166,8 +228,8 @@ def init_db():
              "+880170000004", "Tejgaon, Dhaka", 23.7693, 90.3986),
         ]:
             h = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
-            c.execute("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                      (str(uuid.uuid4()), name, email, h, phone, addr, role, lat, lng, 1, 0))
+            c.execute("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (str(uuid.uuid4()), name, email, h, phone, addr, role, lat, lng, 1, 0, 0))
 
     conn.commit()
     conn.close()
@@ -209,6 +271,77 @@ def require_rider(u=Depends(get_current_user)):
 
 
 def safe_user(u): return {k: v for k, v in u.items() if k != "password"}
+
+
+def _effective_price(price: float, discount_percent: float) -> float:
+    p = float(price or 0)
+    d = float(discount_percent or 0)
+    if d <= 0:
+        return round(p, 2)
+    return round(p * (1 - min(d, 100) / 100), 2)
+
+
+def _menu_row_to_item(row) -> dict:
+    d = dict(row)
+    price = float(d.get("price") or 0)
+    disc = float(d.get("discount_percent") or 0)
+    eff = _effective_price(price, disc)
+    toppings = json.loads(d.get("toppings") or "[]")
+    tags = json.loads(d.get("tags") or "[]")
+    return {
+        "id": d["id"],
+        "name": d["name"],
+        "desc": d.get("description") or "",
+        "description": d.get("description") or "",
+        "price": eff,
+        "original_price": price,
+        "discount_percent": disc,
+        "category": d.get("category") or "",
+        "section": d.get("section") or "pizza",
+        "image": d.get("image_url") or "",
+        "badge": d.get("badge") or "",
+        "badgeColor": d.get("badge_color") or "#e63329",
+        "size": d.get("size") or "",
+        "crust": d.get("crust") or "",
+        "sauce": d.get("sauce") or "",
+        "toppings": toppings,
+        "tags": tags,
+        "is_available": bool(d.get("is_available", 1)),
+        "sort_order": int(d.get("sort_order") or 0),
+    }
+
+
+def _group_menu_items(items: list) -> dict:
+    pizzas_map = {}
+    fast_map = {}
+    for item in items:
+        cat = item["category"]
+        sec = item["section"]
+        bucket = pizzas_map if sec == "pizza" else fast_map
+        if cat not in bucket:
+            bucket[cat] = []
+        bucket[cat].append(item)
+    def to_list(m):
+        return [{"category": k, "items": sorted(v, key=lambda x: x.get("sort_order", 0))}
+                for k, v in sorted(m.items())]
+    return {"pizzas": to_list(pizzas_map), "fastfood": to_list(fast_map)}
+
+
+async def _broadcast_menu_update():
+    await manager.broadcast({
+        "type": "MENU_UPDATE",
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+
+def rider_available_balance(conn, rider_id: str) -> float:
+    gross = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM rider_earnings WHERE rider_id=?",
+        (rider_id,)).fetchone()[0]
+    out = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM rider_withdrawals WHERE rider_id=?",
+        (rider_id,)).fetchone()[0]
+    return round(float(gross) - float(out), 2)
 
 
 # ── Pydantic Models ────────────────────────────────────────────────────────────
@@ -287,6 +420,21 @@ class PizzaImageBody(BaseModel):
     sauce: Optional[str] = ""
     toppings: Optional[List[str]] = []
 
+    @field_validator("toppings", mode="before")
+    @classmethod
+    def coerce_toppings(cls, v):
+        if v is None:
+            return []
+        out = []
+        for x in v:
+            if isinstance(x, str) and x.strip():
+                out.append(x.strip())
+            elif isinstance(x, dict):
+                lbl = x.get("label") or x.get("name")
+                if lbl and str(lbl).strip():
+                    out.append(str(lbl).strip())
+        return out
+
 
 class ReviewBody(BaseModel):
     order_id: Optional[str] = ""
@@ -296,6 +444,57 @@ class ReviewBody(BaseModel):
 
 class AIRecommendBody(BaseModel):
     mood: str  # e.g. "I want something spicy and cheesy"
+
+
+class RiderWithdrawBody(BaseModel):
+    amount: float
+    method: str  # mobile_banking | cash | card
+    detail: Optional[str] = ""  # MFS number, reference, etc.
+
+
+class OwnerInvestmentBody(BaseModel):
+    amount: float
+    category: Optional[str] = "general"
+    note: Optional[str] = ""
+
+
+class MenuItemBody(BaseModel):
+    section: str  # pizza | fastfood
+    category: str
+    name: str
+    description: Optional[str] = ""
+    price: float
+    discount_percent: Optional[float] = 0
+    badge: Optional[str] = ""
+    badge_color: Optional[str] = "#e63329"
+    image_url: Optional[str] = ""
+    size: Optional[str] = ""
+    crust: Optional[str] = ""
+    sauce: Optional[str] = ""
+    toppings: Optional[List[dict]] = []
+    tags: Optional[List[str]] = []
+    is_available: Optional[bool] = True
+    sort_order: Optional[int] = 0
+
+
+class MenuItemPatchBody(BaseModel):
+    section: Optional[str] = None
+    category: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = None
+    discount_percent: Optional[float] = None
+    badge: Optional[str] = None
+    badge_color: Optional[str] = None
+    image_url: Optional[str] = None
+    size: Optional[str] = None
+    crust: Optional[str] = None
+    sauce: Optional[str] = None
+    toppings: Optional[List[dict]] = None
+    tags: Optional[List[str]] = None
+    is_available: Optional[bool] = None
+    sort_order: Optional[int] = None
+
 
 # ── FIXED: PaymentInitBody now accepts both old and new field names ─────────────
 
@@ -376,8 +575,8 @@ def register(body: RegisterBody):
     uid = str(uuid.uuid4())
     h = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
     role = body.role if body.role in ("customer", "rider") else "customer"
-    conn.execute("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                 (uid, body.name, email, h, body.phone, body.address, role, body.lat, body.lng, 1, 0))
+    conn.execute("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (uid, body.name, email, h, body.phone, body.address, role, body.lat, body.lng, 1, 0, 0))
     conn.commit()
     user = dict(conn.execute(
         "SELECT * FROM users WHERE id=?", (uid,)).fetchone())
@@ -835,8 +1034,174 @@ def get_rider_earnings(u=Depends(require_rider)):
         "SELECT COALESCE(SUM(amount),0) FROM rider_earnings WHERE rider_id=? AND created_at LIKE ?", (u["id"], today+"%")).fetchone()[0]
     deliveries = conn.execute(
         "SELECT COUNT(*) FROM orders WHERE rider_id=? AND status='Delivered'", (u["id"],)).fetchone()[0]
+    available = rider_available_balance(conn, u["id"])
+    row_u = conn.execute(
+        "SELECT rider_card_balance FROM users WHERE id=?", (u["id"],)).fetchone()
+    card_bal = float(row_u["rider_card_balance"] or 0) if row_u else 0.0
+    wrows = conn.execute(
+        "SELECT * FROM rider_withdrawals WHERE rider_id=? ORDER BY created_at DESC LIMIT 15",
+        (u["id"],)).fetchall()
     conn.close()
-    return {"total": round(total, 2), "today": round(today_earn, 2), "deliveries": deliveries, "recent": [dict(r) for r in rows[:10]]}
+    return {
+        "total": round(total, 2),
+        "today": round(today_earn, 2),
+        "deliveries": deliveries,
+        "available_balance": available,
+        "card_balance": round(card_bal, 2),
+        "recent": [dict(r) for r in rows[:10]],
+        "withdrawals_recent": [dict(r) for r in wrows],
+    }
+
+
+@app.post("/rider/withdraw")
+def rider_withdraw(body: RiderWithdrawBody, u=Depends(require_rider)):
+    method = (body.method or "").lower().strip()
+    aliases = {"mfs": "mobile_banking", "bkash": "mobile_banking",
+               "nagad": "mobile_banking", "rocket": "mobile_banking"}
+    method = aliases.get(method, method)
+    if method not in ("mobile_banking", "cash", "card"):
+        raise HTTPException(
+            400, "Method must be mobile_banking, cash, or card.")
+    amt = round(float(body.amount), 2)
+    if amt <= 0:
+        raise HTTPException(400, "Amount must be positive.")
+    if method == "mobile_banking" and not (body.detail or "").strip():
+        raise HTTPException(
+            400, "Add your mobile banking number (bKash/Nagad/etc.).")
+
+    conn = get_db()
+    avail = rider_available_balance(conn, u["id"])
+    if amt > avail + 1e-6:
+        conn.close()
+        raise HTTPException(
+            400, f"Insufficient balance. Available: ৳{avail:.2f}")
+    wid = str(uuid.uuid4())
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    detail = (body.detail or "").strip() or None
+    conn.execute(
+        "INSERT INTO rider_withdrawals VALUES (?,?,?,?,?,?)",
+        (wid, u["id"], amt, method, detail, now))
+    if method == "card":
+        conn.execute(
+            "UPDATE users SET rider_card_balance=COALESCE(rider_card_balance,0)+? WHERE id=?",
+            (amt, u["id"]))
+    conn.commit()
+    card = conn.execute(
+        "SELECT rider_card_balance FROM users WHERE id=?", (u["id"],)).fetchone()
+    new_card = round(float(card["rider_card_balance"] or 0), 2)
+    new_avail = rider_available_balance(conn, u["id"])
+    conn.close()
+    labels = {"mobile_banking": "Mobile banking", "cash": "Cash",
+              "card": "PizzaFizz card balance"}
+    return {
+        "message": f"৳{amt:.2f} processed via {labels[method]}.",
+        "available_balance": new_avail,
+        "card_balance": new_card,
+        "withdrawal_id": wid,
+    }
+
+
+def _owner_financial_payload(conn):
+    total_revenue = conn.execute(
+        "SELECT COALESCE(SUM(total),0) FROM orders WHERE payment_status='Paid'").fetchone()[0]
+    inv = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM owner_investments").fetchone()[0]
+    rider_commissions = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM rider_earnings").fetchone()[0]
+    profit_simple = float(total_revenue) - float(inv)
+    profit_after_riders = profit_simple - float(rider_commissions)
+    inv_rows = conn.execute(
+        "SELECT * FROM owner_investments ORDER BY created_at DESC LIMIT 50").fetchall()
+    return {
+        "total_earnings": round(float(total_revenue), 2),
+        "total_investment": round(float(inv), 2),
+        "profit": round(profit_simple, 2),
+        "profit_after_rider_payouts": round(profit_after_riders, 2),
+        "rider_commissions_paid": round(float(rider_commissions), 2),
+        "investments_recent": [dict(r) for r in inv_rows],
+    }
+
+
+@app.get("/owner/financials")
+def owner_financials(u=Depends(require_owner)):
+    conn = get_db()
+    payload = _owner_financial_payload(conn)
+    conn.close()
+    return payload
+
+
+@app.post("/owner/investments")
+def owner_add_investment(body: OwnerInvestmentBody, u=Depends(require_owner)):
+    amt = round(float(body.amount), 2)
+    if amt <= 0:
+        raise HTTPException(400, "Amount must be positive.")
+    oid = str(uuid.uuid4())
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO owner_investments VALUES (?,?,?,?,?,?)",
+        (oid, u["id"], amt, (body.category or "general").strip(),
+         (body.note or "").strip(), now))
+    conn.commit()
+    conn.close()
+    return {"message": "Investment recorded.", "id": oid}
+
+
+@app.get("/owner/investments")
+def owner_list_investments(u=Depends(require_owner)):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM owner_investments ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/owner/report")
+def owner_report(fmt: str = "json", u=Depends(require_owner)):
+    conn = get_db()
+    fin = _owner_financial_payload(conn)
+    orders = conn.execute(
+        "SELECT id, customer_name, total, status, payment_status, payment_method, created_at "
+        "FROM orders ORDER BY created_at DESC").fetchall()
+    inv_all = conn.execute(
+        "SELECT amount, category, note, created_at FROM owner_investments ORDER BY created_at DESC").fetchall()
+    conn.close()
+
+    if (fmt or "json").lower() == "csv":
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["PizzaFizz — Financial report"])
+        w.writerow(["Generated", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+        w.writerow([])
+        w.writerow(["Total earnings (paid orders)", fin["total_earnings"]])
+        w.writerow(["Total investment", fin["total_investment"]])
+        w.writerow(["Profit (earnings − investment)", fin["profit"]])
+        w.writerow(
+            ["Rider commissions paid", fin["rider_commissions_paid"]])
+        w.writerow(
+            ["Profit after rider payouts", fin["profit_after_rider_payouts"]])
+        w.writerow([])
+        w.writerow(["— Orders —"])
+        w.writerow(["Order ID", "Customer", "Total", "Status", "Payment", "Method", "Created"])
+        for row in orders:
+            w.writerow([row["id"], row["customer_name"], row["total"], row["status"],
+                        row["payment_status"], row["payment_method"], row["created_at"]])
+        w.writerow([])
+        w.writerow(["— Investments —"])
+        w.writerow(["Amount", "Category", "Note", "Created"])
+        for row in inv_all:
+            w.writerow([row["amount"], row["category"], row["note"], row["created_at"]])
+        data = buf.getvalue()
+        buf.close()
+        return StreamingResponse(
+            iter([data]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="pizzafizz-owner-report.csv"',
+            },
+        )
+    return {"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), **fin,
+            "orders": [dict(r) for r in orders], "investments": [dict(r) for r in inv_all]}
 
 
 @app.get("/delivery/track/{order_id}")
@@ -945,6 +1310,144 @@ def get_analytics(u=Depends(require_owner)):
     }
 
 
+# ── Menu (dynamic, owner-managed) ─────────────────────────────────────────────
+@app.get("/menu")
+def get_public_menu():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM menu_items WHERE is_available=1 "
+        "ORDER BY sort_order ASC, name ASC").fetchall()
+    conn.close()
+    items = [_menu_row_to_item(r) for r in rows]
+    out = _group_menu_items(items)
+    out["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return out
+
+
+@app.get("/menu/admin")
+def get_admin_menu(u=Depends(require_owner)):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM menu_items ORDER BY section, sort_order, name").fetchall()
+    conn.close()
+    items = [_menu_row_to_item(r) for r in rows]
+    return {"items": items, "grouped": _group_menu_items(items)}
+
+
+@app.post("/menu")
+async def create_menu_item(body: MenuItemBody, u=Depends(require_owner)):
+    sec = (body.section or "pizza").lower().strip()
+    if sec not in ("pizza", "fastfood"):
+        raise HTTPException(400, "section must be pizza or fastfood")
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required.")
+    if body.price <= 0:
+        raise HTTPException(400, "Price must be positive.")
+    iid = "menu-" + str(uuid.uuid4())[:8]
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO menu_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            iid, sec, body.category.strip(), body.name.strip(),
+            (body.description or "").strip(), round(float(body.price), 2),
+            max(0, min(100, float(body.discount_percent or 0))),
+            body.badge or None, body.badge_color or "#e63329",
+            body.image_url or "",
+            body.size or "", body.crust or "", body.sauce or "",
+            json.dumps(body.toppings or []),
+            json.dumps(body.tags or []),
+            1 if body.is_available else 0,
+            int(body.sort_order or 0), now, now,
+        ),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM menu_items WHERE id=?", (iid,)).fetchone()
+    conn.close()
+    item = _menu_row_to_item(row)
+    await _broadcast_menu_update()
+    return {"message": "Menu item added.", "item": item}
+
+
+@app.patch("/menu/{item_id}")
+async def update_menu_item(item_id: str, body: MenuItemPatchBody,
+                           u=Depends(require_owner)):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM menu_items WHERE id=?", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "Menu item not found.")
+    updates = {}
+    data = body.model_dump(exclude_unset=True)
+    if "section" in data:
+        sec = (data["section"] or "").lower().strip()
+        if sec not in ("pizza", "fastfood"):
+            conn.close()
+            raise HTTPException(400, "section must be pizza or fastfood")
+        updates["section"] = sec
+    if "category" in data:
+        updates["category"] = (data["category"] or "").strip()
+    if "name" in data:
+        updates["name"] = (data["name"] or "").strip()
+    if "description" in data:
+        updates["description"] = data["description"] or ""
+    if "price" in data and data["price"] is not None:
+        if data["price"] <= 0:
+            conn.close()
+            raise HTTPException(400, "Price must be positive.")
+        updates["price"] = round(float(data["price"]), 2)
+    if "discount_percent" in data and data["discount_percent"] is not None:
+        updates["discount_percent"] = max(0, min(100, float(data["discount_percent"])))
+    if "badge" in data:
+        updates["badge"] = data["badge"]
+    if "badge_color" in data:
+        updates["badge_color"] = data["badge_color"]
+    if "image_url" in data:
+        updates["image_url"] = data["image_url"] or ""
+    if "size" in data:
+        updates["size"] = data["size"] or ""
+    if "crust" in data:
+        updates["crust"] = data["crust"] or ""
+    if "sauce" in data:
+        updates["sauce"] = data["sauce"] or ""
+    if "toppings" in data:
+        updates["toppings"] = json.dumps(data["toppings"] or [])
+    if "tags" in data:
+        updates["tags"] = json.dumps(data["tags"] or [])
+    if "is_available" in data and data["is_available"] is not None:
+        updates["is_available"] = 1 if data["is_available"] else 0
+    if "sort_order" in data and data["sort_order"] is not None:
+        updates["sort_order"] = int(data["sort_order"])
+    if not updates:
+        conn.close()
+        raise HTTPException(400, "No fields to update.")
+    updates["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    conn.execute(
+        f"UPDATE menu_items SET {set_clause} WHERE id=?",
+        (*updates.values(), item_id),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM menu_items WHERE id=?", (item_id,)).fetchone()
+    conn.close()
+    item = _menu_row_to_item(row)
+    await _broadcast_menu_update()
+    return {"message": "Menu item updated.", "item": item}
+
+
+@app.delete("/menu/{item_id}")
+async def delete_menu_item(item_id: str, u=Depends(require_owner)):
+    conn = get_db()
+    if not conn.execute("SELECT id FROM menu_items WHERE id=?", (item_id,)).fetchone():
+        conn.close()
+        raise HTTPException(404, "Menu item not found.")
+    conn.execute("DELETE FROM menu_items WHERE id=?", (item_id,))
+    conn.commit()
+    conn.close()
+    await _broadcast_menu_update()
+    return {"message": "Menu item deleted."}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  🤖 AI PIZZA RECOMMENDER  ← NEW UNIQUE FEATURE
 #  Uses Claude to suggest a pizza based on customer's mood/craving
@@ -995,7 +1498,12 @@ Suggest ONE perfect pizza for them. Reply with ONLY valid JSON, no markdown, no 
                       "messages": [{"role": "user", "content": prompt}]},
                 timeout=20
             ).json()
-            text = resp["content"][0]["text"].strip()
+            blocks = resp.get("content")
+            if not blocks or not isinstance(blocks, list):
+                raise ValueError("Unexpected API response")
+            text = (blocks[0].get("text") or "").strip()
+            if not text:
+                raise ValueError("Empty model reply")
             # Strip markdown if present
             if "```" in text:
                 text = text.split("```")[1]
@@ -1041,15 +1549,87 @@ Suggest ONE perfect pizza for them. Reply with ONLY valid JSON, no markdown, no 
 # ── AI Image ───────────────────────────────────────────────────────────────────
 @app.post("/generate")
 def generate(data: PizzaImageBody):
+    """
+    Returns a base64-encoded SVG pizza illustration built from the pizza's
+    ingredients — no external API dependency, always works.
+    """
     try:
-        prompt = f"realistic pizza, {data.crust} crust, {data.sauce} sauce, {', '.join(data.toppings or [])}, top view"
-        response = requests.get(
-            f"https://image.pollinations.ai/prompt/{prompt}", timeout=30)
-        if response.status_code != 200:
-            raise HTTPException(502, "AI failed.")
-        return {"image": base64.b64encode(response.content).decode()}
-    except:
-        raise HTTPException(500, "Image generation failed.")
+        toppings = data.toppings or []
+        sauce_colors = {
+            "tomato": "#c0392b", "bbq": "#6b3a2a", "white garlic": "#f5f0e8",
+            "white": "#f5f0e8", "garlic butter": "#f5f0e8",
+            "pesto": "#4a7c59", "spicy arrabbiata": "#e74c3c", "alfredo": "#f8f4e3",
+            "buffalo": "#e67e22", "classic": "#c0392b",
+        }
+        sauce_key = (data.sauce or "tomato").lower().strip()
+        sauce_color = sauce_colors.get(sauce_key, "#c0392b")
+
+        topping_colors = [
+            "#c0392b", "#e67e22", "#27ae60", "#2980b9",
+            "#8e44ad", "#d35400", "#16a085", "#2c3e50",
+        ]
+        topping_positions = [
+            (150, 130), (200, 100), (250, 120), (170, 170),
+            (230, 160), (190, 200), (210, 140), (160, 200),
+        ]
+
+        topping_svgs = ""
+        slot = 0
+        for t in toppings[:8]:
+            raw = str(t).strip() if t is not None else ""
+            if not raw:
+                continue
+            x, y = topping_positions[slot % len(topping_positions)]
+            color = topping_colors[slot % len(topping_colors)]
+            slot += 1
+            topping_svgs += (
+                f'<circle cx="{x}" cy="{y}" r="14" fill="{color}" '
+                f'stroke="#fff" stroke-width="2" opacity="0.92"/>\n'
+            )
+        if not topping_svgs:
+            topping_svgs = (
+                '<circle cx="200" cy="200" r="10" fill="#e63329" '
+                'stroke="#fff" stroke-width="2"/>\n'
+            )
+
+        svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <defs>
+    <radialGradient id="crustGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#d4a04a"/>
+      <stop offset="100%" style="stop-color:#a0652a"/>
+    </radialGradient>
+    <radialGradient id="sauceGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:{sauce_color}cc"/>
+      <stop offset="100%" style="stop-color:{sauce_color}"/>
+    </radialGradient>
+    <radialGradient id="cheeseGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#f9e87f"/>
+      <stop offset="100%" style="stop-color:#e8c84a"/>
+    </radialGradient>
+  </defs>
+  <!-- Crust -->
+  <circle cx="200" cy="200" r="185" fill="url(#crustGrad)" stroke="#8b5e2a" stroke-width="3"/>
+  <!-- Crust edge detail -->
+  <circle cx="200" cy="200" r="185" fill="none" stroke="#c4882a" stroke-width="8" stroke-dasharray="18,12"/>
+  <!-- Sauce layer -->
+  <circle cx="200" cy="200" r="158" fill="url(#sauceGrad)"/>
+  <!-- Cheese layer -->
+  <circle cx="200" cy="200" r="140" fill="url(#cheeseGrad)" opacity="0.9"/>
+  <!-- Cheese texture blobs -->
+  <ellipse cx="170" cy="180" rx="30" ry="20" fill="#f0d060" opacity="0.5"/>
+  <ellipse cx="230" cy="210" rx="25" ry="18" fill="#f0d060" opacity="0.5"/>
+  <ellipse cx="200" cy="155" rx="28" ry="16" fill="#f0d060" opacity="0.5"/>
+  <!-- Toppings -->
+  {topping_svgs}
+  <!-- Shine -->
+  <ellipse cx="160" cy="145" rx="40" ry="25" fill="white" opacity="0.08"/>
+</svg>"""
+
+        svg_bytes = svg.encode("utf-8")
+        b64 = base64.b64encode(svg_bytes).decode()
+        return {"image": f"data:image/svg+xml;base64,{b64}"}
+    except Exception as e:
+        raise HTTPException(500, f"Pizza image build failed: {e!s}") from e
 
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────

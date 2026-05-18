@@ -1,0 +1,93 @@
+.pf-menu-admin {
+  max-width: 100%;
+}
+
+.pf-menu-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.pf-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.pf-menu-card {
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #fde68a;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.pf-menu-card img {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  background: #f3f4f6;
+}
+
+.pf-menu-card-body {
+  padding: 14px;
+}
+
+.pf-menu-card.unavailable {
+  opacity: 0.55;
+}
+
+.pf-menu-form {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  border: 2px solid #fde68a;
+  margin-bottom: 24px;
+}
+
+.pf-menu-form h4 {
+  font-family: "Boogaloo", cursive;
+  color: #7c2d12;
+  margin: 0 0 14px;
+}
+
+.pf-menu-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.pf-menu-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #666;
+}
+
+.pf-menu-form-grid textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.pf-avail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.pf-photo-preview {
+  width: 100%;
+  max-width: 200px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-top: 8px;
+  border: 2px solid #e5e7eb;
+}

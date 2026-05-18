@@ -147,12 +147,15 @@ export default function CustomizePizza() {
             addIns: pizza.addIns,
         });
         setAiLoading(false);
-        if (res.imageUrl) {
-            setAiImage(res.imageUrl);
-            aiRequested.current = true;
-        } else {
-            setAiError(res.error || "Could not generate image");
-        }
+            if (res.imageUrl) {
+                setAiImage(res.imageUrl);
+                aiRequested.current = true;
+                if (res.offline) {
+                    setAiError("Preview generated offline — start backend for full sync.");
+                }
+            } else {
+                setAiError(res.error || "Could not generate image");
+            }
     }, [pizza.crust, pizza.sauce, pizza.toppings, pizza.cheeses, pizza.addIns]);
 
     // Auto-generate AI preview on finish step

@@ -186,8 +186,73 @@ export const setAvailability = (is_available, token) =>
 export const fetchRiderEarnings = (token) =>
     apiFetch("/rider/earnings", {}, token);
 
+export const riderWithdraw = (body, token) =>
+    apiFetch(
+        "/rider/withdraw",
+        {
+            method: "POST",
+            body: JSON.stringify(body),
+        },
+        token
+    );
+
+export const fetchOwnerFinancials = (token) =>
+    apiFetch("/owner/financials", {}, token);
+
+export const addOwnerInvestment = (body, token) =>
+    apiFetch(
+        "/owner/investments",
+        {
+            method: "POST",
+            body: JSON.stringify(body),
+        },
+        token
+    );
+
+export const fetchOwnerInvestments = (token) =>
+    apiFetch("/owner/investments", {}, token);
+
+/** Downloads CSV; uses raw fetch because response is not JSON. */
+export async function downloadOwnerReportCsv(token) {
+    const response = await fetch(`${BASE}/owner/report?fmt=csv`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+        let detail = `Request failed (${response.status})`;
+        try {
+            const err = await response.json();
+            detail = err.detail || err.message || detail;
+        } catch { /* ignore */ }
+        throw new Error(detail);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "pizzafizz-owner-report.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
 export const trackOrder = (orderId, token) =>
     apiFetch(`/delivery/track/${orderId}`, {}, token);
+
+// ── Menu (dynamic) ────────────────────────────────────
+export const fetchPublicMenu = () => apiFetch("/menu");
+
+export const fetchAdminMenu = (token) =>
+    apiFetch("/menu/admin", {}, token);
+
+export const createMenuItem = (body, token) =>
+    apiFetch("/menu", { method: "POST", body: JSON.stringify(body) }, token);
+
+export const updateMenuItem = (id, body, token) =>
+    apiFetch(`/menu/${id}`, { method: "PATCH", body: JSON.stringify(body) }, token);
+
+export const deleteMenuItem = (id, token) =>
+    apiFetch(`/menu/${id}`, { method: "DELETE" }, token);
 
 // ── AI Image ──────────────────────────────────────────
 export const generatePizzaImage = async (pizzaData) => {
@@ -214,9 +279,17 @@ export const generatePizzaImage = async (pizzaData) => {
             }),
         });
 
-        const data = await response.json();
+        let data = {};
+        try {
+            const text = await response.text();
+            if (text) data = JSON.parse(text);
+        } catch {
+            data = {};
+        }
         if (!response.ok) {
-            return { error: data.detail || data.message || "Generation failed" };
+            return {
+                error: data.detail || data.message || `Generation failed (${response.status})`,
+            };
         }
         if (data.image) {
             return {
@@ -228,9 +301,42 @@ export const generatePizzaImage = async (pizzaData) => {
         return { error: "No image returned" };
     } catch (error) {
         console.error("Generate image error:", error);
-        return { error: "Could not reach the kitchen AI — try again!" };
+        const local = buildLocalPizzaPreview(pizzaData);
+        if (local) return { imageUrl: local, offline: true };
+        return { error: "Could not reach the kitchen AI — start the backend on port 8000." };
     }
 };
+
+/** Client-side SVG preview when backend is offline */
+function buildLocalPizzaPreview(pizzaData) {
+    const toppings = [
+        ...(pizzaData.toppings || []).map((t) =>
+            typeof t === "string" ? t : t.label
+        ),
+        ...(pizzaData.cheeses || []).map((c) =>
+            typeof c === "string" ? c : `${c.label}`
+        ),
+    ].filter(Boolean).slice(0, 8);
+    const sauce = (pizzaData.sauce || "tomato").toLowerCase();
+    const sauceColor = sauce.includes("bbq") ? "#6b3a2a"
+        : sauce.includes("pesto") ? "#4a7c59"
+            : sauce.includes("white") || sauce.includes("garlic") ? "#f5f0e8"
+                : "#c0392b";
+    const colors = ["#c0392b", "#e67e22", "#27ae60", "#2980b9", "#8e44ad"];
+    const pos = [[150, 130], [200, 100], [250, 120], [170, 170], [230, 160], [190, 200]];
+    let dots = toppings.map((_, i) => {
+        const [x, y] = pos[i % pos.length];
+        return `<circle cx="${x}" cy="${y}" r="12" fill="${colors[i % colors.length]}" stroke="#fff" stroke-width="2"/>`;
+    }).join("");
+    if (!dots) dots = '<circle cx="200" cy="200" r="10" fill="#e63329"/>';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+<circle cx="200" cy="200" r="185" fill="#d4a04a" stroke="#8b5e2a" stroke-width="3"/>
+<circle cx="200" cy="200" r="158" fill="${sauceColor}"/>
+<circle cx="200" cy="200" r="140" fill="#e8c84a" opacity="0.9"/>
+${dots}
+</svg>`;
+    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
+}
 
 // ── Push Notifications ────────────────────────────────
 export async function requestNotificationPermission() {

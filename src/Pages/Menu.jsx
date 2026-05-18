@@ -2,9 +2,10 @@
 // Full Menu page — Bootstrap 5 + custom CSS + JS interactions
 // Route: /menu
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../Context/CartContext";
+import useLiveMenu from "../hooks/useLiveMenu";
 
 // ── Pizza Menu Data ─────────────────────────────────────
 const PIZZA_MENU = [
@@ -530,8 +531,6 @@ const FAST_FOOD_MENU = [
     },
 ];
 
-const PIZZA_CATEGORIES = ["All", ...PIZZA_MENU.map(c => c.category)];
-const FAST_FOOD_CATEGORIES = ["All", ...FAST_FOOD_MENU.map(c => c.category)];
 const MENU_SECTIONS = [
     { id: "pizzas", label: "🍕 Pizzas", icon: "🍕" },
     { id: "fastfood", label: "🍔 Fast Food", icon: "🍔" },
@@ -541,6 +540,16 @@ const MENU_SECTIONS = [
 export default function Menu() {
     const navigate = useNavigate();
     const { addToCart, cartCount } = useCart();
+    const { pizzaMenu: livePizza, fastFoodMenu: liveFast, loading: menuLoading, error: menuError } = useLiveMenu();
+
+    const PIZZA_DATA = useMemo(
+        () => (livePizza?.length ? livePizza : PIZZA_MENU),
+        [livePizza]
+    );
+    const FAST_DATA = useMemo(
+        () => (liveFast?.length ? liveFast : FAST_FOOD_MENU),
+        [liveFast]
+    );
 
     const [menuSection, setMenuSection] = useState("all");
     const [activeCategory, setActiveCategory] = useState("All");
@@ -550,8 +559,8 @@ export default function Menu() {
     const [toast, setToast] = useState("");
 
     const categoryList = menuSection === "fastfood"
-        ? FAST_FOOD_CATEGORIES
-        : PIZZA_CATEGORIES;
+        ? ["All", ...FAST_DATA.map((c) => c.category)]
+        : ["All", ...PIZZA_DATA.map((c) => c.category)];
 
     function filterMenu(menuData) {
         const allItems = menuData.flatMap(c =>
@@ -580,8 +589,8 @@ export default function Menu() {
         })).filter(cat => cat.items.length > 0);
     }
 
-    const pizzaGrouped = filterMenu(PIZZA_MENU);
-    const fastFoodGrouped = filterMenu(FAST_FOOD_MENU);
+    const pizzaGrouped = filterMenu(PIZZA_DATA);
+    const fastFoodGrouped = filterMenu(FAST_DATA);
 
     const pizzaCount = pizzaGrouped.reduce((n, c) => n + c.items.length, 0);
     const fastFoodCount = fastFoodGrouped.reduce((n, c) => n + c.items.length, 0);
@@ -685,6 +694,14 @@ export default function Menu() {
                 </div>
 
                 <div className="container py-4">
+                    {menuLoading && (
+                        <p style={{ textAlign: "center", color: "#888", marginBottom: 12 }}>Loading live menu…</p>
+                    )}
+                    {menuError && !menuLoading && (
+                        <p style={{ textAlign: "center", color: "#b45309", marginBottom: 12, fontSize: ".9rem" }}>
+                            Showing saved menu (offline: {menuError})
+                        </p>
+                    )}
                     {/* Section switcher */}
                     <div style={styles.sectionTabs}>
                         {MENU_SECTIONS.map(sec => (
@@ -938,13 +955,13 @@ function PizzaCard({ item, isAdded, onAdd, onCustomize }) {
                         <span key={tag} style={styles.tag}>{tag}</span>
                     ))}
                 </div>
-                {item.toppings.length > 0 && (
+                {(item.toppings || []).length > 0 && (
                     <div style={{ marginBottom: 14 }}>
                         <div style={{ fontSize: ".75rem", color: "#aaa", fontWeight: 700, marginBottom: 4 }}>
                             TOPPINGS
                         </div>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            {item.toppings.map(t => (
+                            {(item.toppings || []).map(t => (
                                 <span key={t.label} style={styles.toppingChip}>
                                     {t.icon} {t.label}
                                 </span>
@@ -1058,7 +1075,13 @@ function CardImage({ item, fallback }) {
                 borderRadius: 50, padding: "4px 12px",
                 fontSize: ".9rem", fontWeight: 800,
                 fontFamily: "'Boogaloo', cursive",
+                display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.2,
             }}>
+                {item.discount_percent > 0 && item.original_price > item.price && (
+                    <span style={{ fontSize: ".65rem", textDecoration: "line-through", opacity: 0.75 }}>
+                        ৳{item.original_price}
+                    </span>
+                )}
                 ৳{item.price}
             </span>
         </div>

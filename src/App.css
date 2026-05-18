@@ -163,7 +163,6 @@ h1 {
   filter: drop-shadow(0 2px 3px rgba(255, 120, 0, .35));
 }
 
-/*
 .logo-text {
   font-size: 18px;
   font-weight: 800;
@@ -172,7 +171,7 @@ h1 {
   -webkit-background-clip: text;
   color: transparent;
 }
-*/
+
 /* ===== ICON BUTTONS ===== */
 
 .icon-btn {

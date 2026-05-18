@@ -3,7 +3,10 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchOrders, fetchStats, updateOrderStatus, fetchRiders, assignRider } from "../api";
+import { fetchOrders, fetchStats, updateOrderStatus, fetchRiders, assignRider, fetchOwnerFinancials, addOwnerInvestment, downloadOwnerReportCsv } from "../api";
+import OwnerMenuManager from "./OwnerMenuManager";
+import "../styles/finance-panels.css";
+import "../styles/menu-admin.css";
 
 export default function AdminPanel() {
     const [orders, setOrders] = useState([]);
@@ -12,6 +15,12 @@ export default function AdminPanel() {
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState("");
     const [wsStatus, setWsStatus] = useState("connecting");
+    const [view, setView] = useState("orders"); // orders | finance | menu
+    const [financials, setFinancials] = useState(null);
+    const [invAmount, setInvAmount] = useState("");
+    const [invCategory, setInvCategory] = useState("ingredients");
+    const [invNote, setInvNote] = useState("");
+    const [invBusy, setInvBusy] = useState(false);
     const navigate = useNavigate();
     const wsRef = useRef(null);
 
@@ -46,6 +55,19 @@ export default function AdminPanel() {
     }, [token]);
 
     useEffect(() => { load(); }, [load]);
+
+    const loadFinance = useCallback(async () => {
+        try {
+            const f = await fetchOwnerFinancials(token);
+            setFinancials(f);
+        } catch (err) {
+            showToast("❌ " + err.message);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        if (view === "finance") loadFinance();
+    }, [view, loadFinance]);
 
     // WebSocket
     useEffect(() => {
@@ -88,16 +110,51 @@ export default function AdminPanel() {
         } catch (err) { showToast("❌ " + err.message); }
     }
 
+    async function handleAddInvestment(e) {
+        e.preventDefault();
+        const amt = parseFloat(invAmount);
+        if (!amt || amt <= 0) {
+            showToast("Enter a valid amount");
+            return;
+        }
+        setInvBusy(true);
+        try {
+            await addOwnerInvestment({ amount: amt, category: invCategory, note: invNote }, token);
+            showToast("✅ Investment saved");
+            setInvAmount("");
+            setInvNote("");
+            loadFinance();
+            load();
+        } catch (err) {
+            showToast("❌ " + err.message);
+        } finally {
+            setInvBusy(false);
+        }
+    }
+
+    async function handleDownloadCsv() {
+        try {
+            await downloadOwnerReportCsv(token);
+            showToast("✅ Report downloaded");
+        } catch (err) {
+            showToast("❌ " + err.message);
+        }
+    }
+
+    function handlePrintReport() {
+        window.print();
+    }
+
     if (!user || (user.role !== "owner" && user.role !== "admin")) return null;
 
     return (
         <div style={{ maxWidth: 960, margin: "0 auto", padding: "32px 16px" }}>
 
             {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
                 <div>
                     <h2 style={styles.pageTitle}>👨‍🍳 Owner Dashboard</h2>
-                    <p style={{ color: "#888" }}>Manage orders & assign riders</p>
+                    <p style={{ color: "#888" }}>Manage orders, riders & business finances</p>
                 </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                     <div style={styles.wsChip}>
@@ -112,8 +169,24 @@ export default function AdminPanel() {
                 </div>
             </div>
 
-            {/* Stats */}
-            {stats && (
+            <div className="pf-owner-tabs pf-no-print">
+                <button type="button" className={`pf-owner-tab ${view === "orders" ? "is-on" : ""}`} onClick={() => setView("orders")}>
+                    📋 Orders & riders
+                </button>
+                <button type="button" className={`pf-owner-tab ${view === "finance" ? "is-on" : ""}`} onClick={() => setView("finance")}>
+                    📊 Business finance
+                </button>
+                <button type="button" className={`pf-owner-tab ${view === "menu" ? "is-on" : ""}`} onClick={() => setView("menu")}>
+                    🍕 Menu editor
+                </button>
+            </div>
+
+            {view === "menu" && (
+                <OwnerMenuManager token={token} showToast={showToast} />
+            )}
+
+            {/* Stats — orders view */}
+            {view === "orders" && stats && (
                 <div style={styles.statsGrid}>
                     {[
                         { num: stats.totalOrders, label: "Total Orders", color: "#e63329" },
@@ -133,7 +206,7 @@ export default function AdminPanel() {
             )}
 
             {/* Available riders summary */}
-            {riders.length > 0 && (
+            {view === "orders" && riders.length > 0 && (
                 <div style={styles.riderSummary}>
                     <h4 style={styles.riderSummaryTitle}>🛵 Available Riders</h4>
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -155,16 +228,16 @@ export default function AdminPanel() {
             )}
 
             {/* Orders */}
-            {loading && <p style={{ color: "#888", textAlign: "center", padding: 40 }}>Loading orders…</p>}
+            {view === "orders" && loading && <p style={{ color: "#888", textAlign: "center", padding: 40 }}>Loading orders…</p>}
 
-            {!loading && orders.length === 0 && (
+            {view === "orders" && !loading && orders.length === 0 && (
                 <div style={{ textAlign: "center", padding: "60px 20px" }}>
                     <div style={{ fontSize: "4rem" }}>📭</div>
                     <h3 style={{ fontFamily: "'Boogaloo',cursive", fontSize: "1.8rem", color: "#555", marginTop: 12 }}>No orders yet!</h3>
                 </div>
             )}
 
-            {orders.map(order => (
+            {view === "orders" && orders.map(order => (
                 <OrderCard
                     key={order.id}
                     order={order}
@@ -173,6 +246,101 @@ export default function AdminPanel() {
                     onAssignRider={handleAssignRider}
                 />
             ))}
+
+            {view === "finance" && (
+                <div>
+                    {!financials && <p style={{ color: "#888", textAlign: "center", padding: 40 }}>Loading finance…</p>}
+                    {financials && (
+                        <>
+                            <div className="pf-profit-grid pf-no-print">
+                                <div className="pf-profit-card">
+                                    <div className="pf-val" style={{ color: "#16a34a" }}>৳{financials.total_earnings}</div>
+                                    <div className="pf-lbl">Total earnings (paid orders)</div>
+                                </div>
+                                <div className="pf-profit-card">
+                                    <div className="pf-val" style={{ color: "#ea580c" }}>৳{financials.total_investment}</div>
+                                    <div className="pf-lbl">Total investment logged</div>
+                                </div>
+                                <div className="pf-profit-card">
+                                    <div className="pf-val" style={{ color: "#2563eb" }}>৳{financials.profit}</div>
+                                    <div className="pf-lbl">Profit (earnings − investment)</div>
+                                </div>
+                                <div className="pf-profit-card">
+                                    <div className="pf-val" style={{ color: "#7c3aed" }}>৳{financials.profit_after_rider_payouts}</div>
+                                    <div className="pf-lbl">After rider commissions</div>
+                                </div>
+                            </div>
+
+                            <div className="pf-finance-panel pf-no-print">
+                                <h4>Log investment / expense</h4>
+                                <form onSubmit={handleAddInvestment}>
+                                    <div className="pf-form-row">
+                                        <label>
+                                            Amount (৳)
+                                            <input className="pf-input" type="number" min="1" step="0.01" value={invAmount} onChange={e => setInvAmount(e.target.value)} required />
+                                        </label>
+                                        <label>
+                                            Category
+                                            <select className="pf-input" value={invCategory} onChange={e => setInvCategory(e.target.value)}>
+                                                <option value="ingredients">Ingredients</option>
+                                                <option value="equipment">Equipment</option>
+                                                <option value="rent">Rent</option>
+                                                <option value="marketing">Marketing</option>
+                                                <option value="general">General</option>
+                                            </select>
+                                        </label>
+                                        <label style={{ flex: 1, minWidth: 200 }}>
+                                            Note
+                                            <input className="pf-input" style={{ width: "100%", maxWidth: 320 }} value={invNote} onChange={e => setInvNote(e.target.value)} placeholder="Optional" />
+                                        </label>
+                                        <button type="submit" className="pf-btn-primary" disabled={invBusy}>{invBusy ? "…" : "Save"}</button>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div className="pf-finance-panel pf-no-print">
+                                <h4>Reports</h4>
+                                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                                    <button type="button" className="pf-btn-primary" onClick={handleDownloadCsv}>⬇ Download CSV report</button>
+                                    <button type="button" className="pf-btn-outline" onClick={handlePrintReport}>🖨 Print summary</button>
+                                    <button type="button" className="pf-btn-outline" onClick={() => { loadFinance(); showToast("Refreshed"); }}>🔃 Refresh numbers</button>
+                                </div>
+                            </div>
+
+                            <div className="pf-print-area">
+                                <h4 style={{ fontFamily: "'Boogaloo',cursive", color: "#7c2d12" }}>Summary (print)</h4>
+                                <p style={{ fontSize: ".9rem", color: "#555" }}>
+                                    Total earnings: <strong>৳{financials.total_earnings}</strong><br />
+                                    Total investment: <strong>৳{financials.total_investment}</strong><br />
+                                    Profit: <strong>৳{financials.profit}</strong><br />
+                                    Rider commissions paid: <strong>৳{financials.rider_commissions_paid}</strong><br />
+                                    Profit after riders: <strong>৳{financials.profit_after_rider_payouts}</strong>
+                                </p>
+                                {financials.investments_recent.length > 0 && (
+                                    <>
+                                        <h4 style={{ fontFamily: "'Boogaloo',cursive", color: "#7c2d12", marginTop: 16 }}>Recent investments</h4>
+                                        <table className="pf-invest-table">
+                                            <thead>
+                                                <tr><th>Amount</th><th>Category</th><th>Note</th><th>Date</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                {financials.investments_recent.map((r) => (
+                                                    <tr key={r.id}>
+                                                        <td>৳{r.amount}</td>
+                                                        <td>{r.category}</td>
+                                                        <td>{r.note || "—"}</td>
+                                                        <td>{r.created_at}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </>
+                                )}
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
 
             {/* Toast */}
             <div style={{

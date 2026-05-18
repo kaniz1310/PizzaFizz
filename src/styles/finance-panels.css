@@ -1,0 +1,204 @@
+/* Rider withdrawals & owner finance panels — plain CSS alongside React pages */
+
+.pf-finance-panel {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid #fde68a;
+}
+
+.pf-finance-panel h4 {
+  font-family: "Boogaloo", cursive;
+  font-size: 1.25rem;
+  color: #7c2d12;
+  margin: 0 0 14px;
+}
+
+.pf-withdraw-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pf-method-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 2px solid #e5e7eb;
+  background: #fff;
+  cursor: pointer;
+  font-family: Nunito, sans-serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #444;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.pf-method-pill:hover {
+  border-color: #fbbf24;
+}
+
+.pf-method-pill.is-active {
+  border-color: #e63329;
+  background: #fff0ee;
+  color: #7c2d12;
+}
+
+.pf-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.pf-form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #666;
+}
+
+.pf-input {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 2px solid #e5e7eb;
+  font-family: Nunito, sans-serif;
+  font-size: 0.9rem;
+  min-width: 140px;
+}
+
+.pf-input:focus {
+  outline: none;
+  border-color: #e63329;
+}
+
+.pf-btn-primary {
+  background: #e63329;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 11px 22px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: Nunito, sans-serif;
+}
+
+.pf-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pf-btn-outline {
+  background: #fff;
+  color: #e63329;
+  border: 2px solid #e63329;
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: Nunito, sans-serif;
+}
+
+.pf-withdraw-hint {
+  font-size: 0.8rem;
+  color: #888;
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+.pf-owner-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.pf-owner-tab {
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 2px solid #e5e7eb;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 800;
+  font-family: Nunito, sans-serif;
+  font-size: 0.88rem;
+  color: #666;
+}
+
+.pf-owner-tab.is-on {
+  border-color: #e63329;
+  background: #fff0ee;
+  color: #7c2d12;
+}
+
+.pf-profit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.pf-profit-card {
+  background: linear-gradient(145deg, #fff 0%, #fff8f0 100%);
+  border-radius: 16px;
+  padding: 18px;
+  border: 1px solid #fde68a;
+  text-align: center;
+}
+
+.pf-profit-card .pf-val {
+  font-family: "Boogaloo", cursive;
+  font-size: 1.85rem;
+}
+
+.pf-profit-card .pf-lbl {
+  font-size: 0.72rem;
+  color: #666;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.pf-invest-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.pf-invest-table th,
+.pf-invest-table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px dashed #fde68a;
+}
+
+.pf-invest-table th {
+  color: #7c2d12;
+  font-family: "Boogaloo", cursive;
+  font-weight: 400;
+  font-size: 0.95rem;
+}
+
+.pf-print-area {
+  background: #fff;
+  padding: 16px;
+  border-radius: 12px;
+  margin-top: 16px;
+}
+
+@media print {
+  .pf-no-print {
+    display: none !important;
+  }
+  .pf-print-area {
+    box-shadow: none;
+    border: none;
+  }
+}

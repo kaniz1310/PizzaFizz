@@ -60,6 +60,7 @@ export default function Navbar() {
                         <button onClick={() => navigate("/menu")} style={styles.outlineBtn}>
                             🍕 Menu
                         </button>
+
                     </>
                 )}
 

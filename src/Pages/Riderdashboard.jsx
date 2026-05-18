@@ -11,7 +11,9 @@ import { useNavigate } from "react-router-dom";
 import {
     fetchRiderOrders, completeDelivery,
     updateRiderLocation, setAvailability, fetchRiderEarnings,
+    riderWithdraw,
 } from "../api";
+import "../styles/finance-panels.css";
 
 export default function RiderDashboard() {
     const navigate = useNavigate();
@@ -22,6 +24,10 @@ export default function RiderDashboard() {
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState("");
     const [riderPos, setRiderPos] = useState({ lat: 23.7937, lng: 90.4066 });
+    const [withdrawAmount, setWithdrawAmount] = useState("");
+    const [withdrawMethod, setWithdrawMethod] = useState("mobile_banking");
+    const [withdrawDetail, setWithdrawDetail] = useState("");
+    const [withdrawBusy, setWithdrawBusy] = useState(false);
     const mapRef = useRef(null);
     const mapInstance = useRef(null);
     const riderMarker = useRef(null);
@@ -32,7 +38,7 @@ export default function RiderDashboard() {
 
     // ── Guard ──────────────────────────────────────────
     useEffect(() => {
-        if (!user || user.role !== "rider") navigate("/rider/login");
+        if (!user || user.role !== "rider") navigate("/login");
     }, []);
 
     function showToast(msg) {
@@ -184,10 +190,38 @@ export default function RiderDashboard() {
         }
     }
 
+    async function handleWithdraw(e) {
+        e.preventDefault();
+        const amt = parseFloat(withdrawAmount);
+        if (!amt || amt <= 0) {
+            showToast("Enter a valid amount");
+            return;
+        }
+        setWithdrawBusy(true);
+        try {
+            await riderWithdraw(
+                {
+                    amount: amt,
+                    method: withdrawMethod,
+                    detail: withdrawDetail.trim(),
+                },
+                token
+            );
+            showToast("✅ Withdrawal request saved");
+            setWithdrawAmount("");
+            if (withdrawMethod === "mobile_banking") setWithdrawDetail("");
+            loadData();
+        } catch (err) {
+            showToast("❌ " + err.message);
+        } finally {
+            setWithdrawBusy(false);
+        }
+    }
+
     function handleLogout() {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
-        navigate("/rider/login");
+        navigate("/login");
     }
 
     const activeDeliveries = orders.filter(o => o.status === "Out for Delivery");
@@ -236,7 +270,9 @@ export default function RiderDashboard() {
                 {earnings && (
                     <div style={styles.statsBar}>
                         {[
-                            { icon: "💰", label: "Total Earned", value: `৳${earnings.total}` },
+                            { icon: "💰", label: "Lifetime earned", value: `৳${earnings.total}` },
+                            { icon: "✅", label: "Available", value: `৳${earnings.available_balance ?? earnings.total}` },
+                            { icon: "💳", label: "Card balance", value: `৳${earnings.card_balance ?? 0}` },
                             { icon: "📅", label: "Today", value: `৳${earnings.today}` },
                             { icon: "📦", label: "Deliveries", value: earnings.deliveries },
                             { icon: "🚚", label: "Active", value: activeDeliveries.length },
@@ -351,15 +387,75 @@ export default function RiderDashboard() {
                         <div>
                             {/* Summary cards */}
                             <div style={styles.earningsGrid}>
-                                <EarningCard icon="💰" label="Total Earnings" value={`৳${earnings.total}`} color="#16a34a" />
-                                <EarningCard icon="📅" label="Today's Earnings" value={`৳${earnings.today}`} color="#f97316" />
-                                <EarningCard icon="📦" label="Total Deliveries" value={earnings.deliveries} color="#3b82f6" />
-                                <EarningCard icon="⭐" label="Earn per delivery" value="10% of order" color="#8b5cf6" />
+                                <EarningCard icon="💰" label="Lifetime delivery pay" value={`৳${earnings.total}`} color="#16a34a" />
+                                <EarningCard icon="✅" label="Available to withdraw" value={`৳${earnings.available_balance ?? 0}`} color="#15803d" />
+                                <EarningCard icon="💳" label="PizzaFizz card" value={`৳${earnings.card_balance ?? 0}`} color="#6366f1" />
+                                <EarningCard icon="📅" label="Today's earnings" value={`৳${earnings.today}`} color="#f97316" />
+                                <EarningCard icon="📦" label="Deliveries done" value={earnings.deliveries} color="#3b82f6" />
+                            </div>
+
+                            <div className="pf-finance-panel">
+                                <h4>Withdraw or move money</h4>
+                                <p className="pf-withdraw-hint">
+                                    Cash out to <strong>mobile banking</strong> (bKash, Nagad, etc.), collect <strong>cash</strong> at the restaurant,
+                                    or load your in-app <strong>PizzaFizz card</strong> for instant balance.
+                                </p>
+                                <div className="pf-withdraw-methods">
+                                    {[
+                                        { key: "mobile_banking", label: "📱 Mobile banking" },
+                                        { key: "cash", label: "💵 Cash" },
+                                        { key: "card", label: "💳 Add to card" },
+                                    ].map((m) => (
+                                        <button
+                                            key={m.key}
+                                            type="button"
+                                            className={`pf-method-pill ${withdrawMethod === m.key ? "is-active" : ""}`}
+                                            onClick={() => setWithdrawMethod(m.key)}
+                                        >
+                                            {m.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <form onSubmit={handleWithdraw}>
+                                    <div className="pf-form-row">
+                                        <label>
+                                            Amount (৳)
+                                            <input
+                                                className="pf-input"
+                                                type="number"
+                                                min="1"
+                                                step="0.01"
+                                                value={withdrawAmount}
+                                                onChange={(ev) => setWithdrawAmount(ev.target.value)}
+                                                placeholder="0.00"
+                                            />
+                                        </label>
+                                        {(withdrawMethod === "mobile_banking") && (
+                                            <label style={{ flex: 1, minWidth: 200 }}>
+                                                Mobile / wallet number
+                                                <input
+                                                    className="pf-input"
+                                                    style={{ width: "100%", maxWidth: 280 }}
+                                                    type="text"
+                                                    value={withdrawDetail}
+                                                    onChange={(ev) => setWithdrawDetail(ev.target.value)}
+                                                    placeholder="01xxxxxxxxx"
+                                                />
+                                            </label>
+                                        )}
+                                        <button type="submit" className="pf-btn-primary" disabled={withdrawBusy}>
+                                            {withdrawBusy ? "…" : "Submit"}
+                                        </button>
+                                    </div>
+                                </form>
+                                <p className="pf-withdraw-hint">
+                                    Available now: <strong>৳{earnings.available_balance ?? 0}</strong>. Requests are recorded for admin settlement (demo flow).
+                                </p>
                             </div>
 
                             {/* Recent earnings */}
                             <h3 style={{ ...styles.sectionTitle, marginTop: 24 }}>
-                                📋 Recent Transactions
+                                📋 Delivery earnings
                             </h3>
 
                             {earnings.recent.length === 0 && (
@@ -369,7 +465,7 @@ export default function RiderDashboard() {
                             )}
 
                             {earnings.recent.map((e, i) => (
-                                <div key={i} style={styles.earningRow}>
+                                <div key={e.id || `e-${e.order_id}-${i}`} style={styles.earningRow}>
                                     <div>
                                         <div style={{ fontWeight: 700, fontSize: ".9rem" }}>
                                             Order #{e.order_id}
@@ -383,6 +479,36 @@ export default function RiderDashboard() {
                                         fontSize: "1.3rem", color: "#16a34a",
                                     }}>
                                         +৳{e.amount}
+                                    </div>
+                                </div>
+                            ))}
+
+                            <h3 style={{ ...styles.sectionTitle, marginTop: 24 }}>
+                                🧾 Recent withdrawals & transfers
+                            </h3>
+                            {!(earnings.withdrawals_recent && earnings.withdrawals_recent.length) && (
+                                <div style={styles.emptyBox}>
+                                    <p style={{ color: "#aaa" }}>No withdrawals yet.</p>
+                                </div>
+                            )}
+                            {(!!earnings.withdrawals_recent && earnings.withdrawals_recent.length > 0) && earnings.withdrawals_recent.map((w, i) => (
+                                <div key={w.id || `w-${i}`} style={styles.earningRow}>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: ".9rem" }}>
+                                            {w.method === "mobile_banking" && "📱 Mobile banking"}
+                                            {w.method === "cash" && "💵 Cash"}
+                                            {w.method === "card" && "💳 Added to card"}
+                                            {w.detail ? ` · ${w.detail}` : ""}
+                                        </div>
+                                        <div style={{ fontSize: ".78rem", color: "#aaa" }}>
+                                            {w.created_at}
+                                        </div>
+                                    </div>
+                                    <div style={{
+                                        fontFamily: "'Boogaloo', cursive",
+                                        fontSize: "1.3rem", color: "#dc2626",
+                                    }}>
+                                        −৳{w.amount}
                                     </div>
                                 </div>
                             ))}
